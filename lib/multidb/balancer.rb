@@ -59,7 +59,7 @@ module Multidb
         else
           @fallback = false
         end
-        @default_candidate = Candidate.new(@default_configuration.default_pool)
+        @default_candidate = Candidate.new('default', @default_configuration.default_pool)
         unless @candidates.include?(:default)
           @candidates[:default] = [@default_candidate]
         end
@@ -70,7 +70,7 @@ module Multidb
       databases.each_pair do |name, config|
         configs = config.is_a?(Array) ? config : [config]
         configs.each do |config|
-          candidate = Candidate.new(@default_configuration.default_adapter.merge(config))
+          candidate = Candidate.new(name, @default_configuration.default_adapter.merge(config))
           @candidates[name] ||= []
           @candidates[name].push(candidate)
         end

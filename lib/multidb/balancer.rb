@@ -1,7 +1,9 @@
 module Multidb
 
   class Candidate
-    def initialize(target)
+    def initialize(name, target)
+      @name = name
+
       if target.is_a?(Hash)
         adapter = target[:adapter]
         begin
@@ -14,8 +16,16 @@ module Multidb
         else
           spec_class = ActiveRecord::Base::ConnectionSpecification
         end
-        @connection_pool = ActiveRecord::ConnectionAdapters::ConnectionPool.new(
-          spec_class.new(target, "#{adapter}_connection"))
+
+        spec =
+            if ActiveRecord::VERSION::MAJOR >= 5
+              # ActiveRecord 5.0.1 introduced `name` to initialize
+              spec_class.new(name, target, "#{adapter}_connection")
+            else
+              spec_class.new(target, "#{adapter}_connection")
+            end
+
+        @connection_pool = ActiveRecord::ConnectionAdapters::ConnectionPool.new(spec)
       else
         @connection_pool = target
       end

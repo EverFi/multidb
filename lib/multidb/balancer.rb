@@ -1,38 +1,6 @@
 module Multidb
-
-  class Candidate
-    def initialize(target)
-      if target.is_a?(Hash)
-        adapter = target[:adapter]
-        begin
-          require "active_record/connection_adapters/#{adapter}_adapter"
-        rescue LoadError
-          raise "Please install the #{adapter} adapter: `gem install activerecord-#{adapter}-adapter` (#{$!})"
-        end
-        if defined?(ActiveRecord::ConnectionAdapters::ConnectionSpecification)
-          spec_class = ActiveRecord::ConnectionAdapters::ConnectionSpecification
-        else
-          spec_class = ActiveRecord::Base::ConnectionSpecification
-        end
-        @connection_pool = ActiveRecord::ConnectionAdapters::ConnectionPool.new(
-          spec_class.new(target, "#{adapter}_connection"))
-      else
-        @connection_pool = target
-      end
-    end
-
-    def connection(&block)
-      if block_given?
-        @connection_pool.with_connection(&block)
-      else
-        @connection_pool.connection
-      end
-    end
-
-    attr_reader :connection_pool
-  end
-
   class Balancer
+    attr_accessor :fallback
 
     def initialize(configuration)
       @candidates = {}.with_indifferent_access
@@ -49,18 +17,18 @@ module Multidb
         else
           @fallback = false
         end
-        @default_candidate = Candidate.new(@default_configuration.default_pool)
+        @default_candidate = Candidate.new('default', @default_configuration.default_handler)
         unless @candidates.include?(:default)
           @candidates[:default] = [@default_candidate]
         end
       end
     end
-    
+
     def append(databases)
       databases.each_pair do |name, config|
         configs = config.is_a?(Array) ? config : [config]
         configs.each do |config|
-          candidate = Candidate.new(@default_configuration.default_adapter.merge(config))
+          candidate = Candidate.new(name, @default_configuration.default_adapter.merge(config))
           @candidates[name] ||= []
           @candidates[name].push(candidate)
         end
@@ -68,9 +36,7 @@ module Multidb
     end
 
     def disconnect!
-      @candidates.values.flatten.each do |candidate|
-        candidate.connection_pool.disconnect!
-      end
+      @candidates.values.flatten.each(&:disconnect!)
     end
 
     def get(name, &block)
@@ -87,35 +53,57 @@ module Multidb
       get(name) do |candidate|
         if block_given?
           candidate.connection do |connection|
-            previous_connection, Thread.current[:multidb_connection] =
-              Thread.current[:multidb_connection], connection
+            previous_configuration = Thread.current[:multidb]
+            Thread.current[:multidb] = {
+              connection: connection,
+              connection_name: name
+            }
             begin
               result = yield
+              result = result.to_a if result.is_a?(ActiveRecord::Relation)
             ensure
-              Thread.current[:multidb_connection] = previous_connection
+              Thread.current[:multidb] = previous_configuration
             end
             result
           end
         else
-          result = Thread.current[:multidb_connection] = candidate.connection
+          Thread.current[:multidb] = {
+            connection: candidate.connection,
+            connection_name: name
+          }
+          result = candidate.connection
         end
       end
       result
     end
 
     def current_connection
-      Thread.current[:multidb_connection] || @default_candidate.connection
+      if Thread.current[:multidb]
+        Thread.current[:multidb][:connection]
+      else
+        @default_candidate.connection
+      end
+    end
+
+    def current_connection_name
+      if Thread.current[:multidb]
+        Thread.current[:multidb][:connection_name]
+      else
+        :default
+      end
     end
 
     class << self
-      delegate :use, :current_connection, :disconnect!, to: :balancer
-
       def use(name, &block)
         Multidb.balancer.use(name, &block)
       end
 
       def current_connection
         Multidb.balancer.current_connection
+      end
+
+      def current_connection_name
+        Multidb.balancer.current_connection_name
       end
 
       def disconnect!

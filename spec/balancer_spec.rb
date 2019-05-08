@@ -26,6 +26,12 @@ describe 'Multidb.balancer' do
 
       Multidb.balancer.current_connection.should eq conn
     end
+
+    it 'returns default connection name for default connection' do
+      conn = ActiveRecord::Base.connection
+
+      Multidb.balancer.current_connection_name.should eq :default
+    end
   
     context 'with additional configurations' do
       before do
@@ -40,6 +46,12 @@ describe 'Multidb.balancer' do
           list = conn.execute('pragma database_list')
           list.length.should eq 1
           File.basename(list[0]['file']).should eq 'test-slave4.sqlite'
+        end
+      end
+
+      it 'returns the connection name' do
+        Multidb.use(:slave4) do
+          Multidb.balancer.current_connection_name.should eq :slave4
         end
       end
     end
@@ -80,6 +92,16 @@ describe 'Multidb.balancer' do
           list.length.should eq 1
           File.basename(list[0]['file']).should eq 'test-slave1.sqlite'
         end
+      end
+
+      it 'returns results instead of relation' do
+        class FooBar < ActiveRecord::Base; end
+        res = Multidb.use(:slave1) do
+          ActiveRecord::Migration.verbose = false
+          ActiveRecord::Schema.define(version: 1) { create_table :foo_bars }
+          FooBar.where(id: 42)
+        end
+        res.should eq []
       end
 
       it 'returns supports nested slave connection' do

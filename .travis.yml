@@ -1,3 +1,10 @@
-rvm:
-  - 1.9.3
-  - 2.0
+sudo: false
+language: ruby
+
+matrix:
+  fast_finish: true
+  include:
+    - rvm: 2.5.0
+      gemfile: gemfiles/activerecord51.gemfile
+    - rvm: 2.5.0
+      gemfile: gemfiles/activerecord52.gemfile
